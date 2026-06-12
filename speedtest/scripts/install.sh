@@ -48,7 +48,7 @@ detect_platform() {
 select_best_mirror() {
   echo "Checking network connectivity to find the best mirror..."
   
-  # 定义候选镜像列表（末尾带 /）
+  # 定义候选镜像列表
   local mirrors=(
     "https://ghproxy.net/"
     "https://gh-proxy.com/"
@@ -58,24 +58,29 @@ select_best_mirror() {
   BEST_MIRROR=""
   local min_time=999
 
-  # 遍历测试每个镜像的响应时间
   for mirror in "${mirrors[@]}"; do
-    # 使用 curl 测试连接，超时时间设为 2 秒
-    local time
-    time=$(curl -o /dev/null -s -w "%{time_total}" --connect-timeout 2 "${mirror}" || echo "999")
+    # 仅获取总时间的整数部分，规避 bc 依赖和各种环境下的语法报错
+    local time_str
+    time_str=$(curl -o /dev/null -s -w "%{time_total}" --connect-timeout 2 "${mirror}" || echo "999")
     
-    # 如果连接成功且延迟更低，则更新最优镜像
-    if (( $(echo "$time < $min_time" | bc 2>/dev/null || [ "${time%%.*}" -lt "${min_time%%.*}" ]) )); then
-      min_time=$time
+    # 取小数点前的整数
+    local time_int="${time_str%%.*}"
+    # 如果为空或不是纯数字，兜底设为 999
+    if [[ ! "$time_int" =~ ^[0-9]+$ ]]; then
+      time_int=999
+    fi
+    
+    if [ "$time_int" -lt "$min_time" ]; then
+      min_time=$time_int
       BEST_MIRROR=$mirror
     fi
   done
 
-  # 如果测出来的延迟都在正常范围内（没走 999 兜底），就启用镜像
-  if [ "$BEST_MIRROR" != "" ] && [ "${BEST_MIRROR}" != "999" ] && (( $(echo "$min_time < 5" | bc 2>/dev/null || [ "${min_time%%.*}" -lt 5 ]) )); then
-    echo "Selected mirror: ${BEST_MIRROR} (Response time: ${min_time}s)"
+  # 如果最优镜像响应时间小于 5 秒，则使用它
+  if [ -n "$BEST_MIRROR" ] && [ "$min_time" -lt 5 ]; then
+    echo "Selected mirror: ${BEST_MIRROR}"
   else
-    echo "No fast mirror available or networks look fine. Using official GitHub."
+    echo "No fast mirror available. Using official GitHub."
     BEST_MIRROR=""
   fi
 }
@@ -91,7 +96,6 @@ get_download_url() {
   local release_url="https://api.github.com/repos/${REPO}/releases/latest"
   local release_json
   
-  # 如果连官方 API 都被墙，这里也尝试走一遍镜像代理（针对支持 API 代理的源）
   if [ -n "$BEST_MIRROR" ]; then
     release_json=$(curl -fsSL --connect-timeout 5 "${BEST_MIRROR}${release_url}" 2>/dev/null || curl -fsSL "${release_url}")
   else
@@ -103,12 +107,4 @@ get_download_url() {
   fi
 
   DOWNLOAD_URL=$(echo "$release_json" | grep -o "\"browser_download_url\": *\"[^\"]*${asset_name}\"" | head -1 | cut -d'"' -f4)
-  if [ -z "$DOWNLOAD_URL" ]; then
-    echo "Asset ${asset_name} not found."
-    echo "Visit https://github.com/${REPO}/releases/latest to download manually."
-    exit 1
-  fi
-
-  # 将最优镜像前缀拼接到下载链接
-  if [ -n "$BEST_MIRROR" ]; then
-    DOWNLOAD_URL
+  if [ -z "$DOWNLOAD_URL" ];
