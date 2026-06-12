@@ -11,7 +11,7 @@ INSTALL_DIR="."
 MASTER=""
 TOKEN=""
 
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
   case "$1" in
     -master) MASTER="$2"; shift 2 ;;
     -token) TOKEN="$2"; shift 2 ;;
@@ -24,14 +24,12 @@ if [ -z "$MASTER" ] || [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-# Detect OS and architecture
 detect_platform() {
   OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
   ARCH="$(uname -m)"
 
   case "$OS" in
-    linux) OS="linux" ;;
-    linux*|linlx*) OS="linux" ;; 
+    linux|linux*|linlx*) OS="linux" ;;
     darwin) OS="darwin" ;;
     mingw*|msys*|cygwin*) OS="windows" ;;
     *) echo "Unsupported OS: $OS"; exit 1 ;;
@@ -44,39 +42,31 @@ detect_platform() {
   esac
 }
 
-# 自动检测并选择最优的镜像源
 select_best_mirror() {
   echo "Checking network connectivity to find the best mirror..."
-  
-  # 定义候选镜像列表
-  local mirrors=(
-    "https://ghproxy.net/"
-    "https://gh-proxy.com/"
-    "https://mirror.ghproxy.com/"
-  )
-  
+
   BEST_MIRROR=""
   local min_time=999
 
-  for mirror in "${mirrors[@]}"; do
-    # 仅获取总时间的整数部分，规避 bc 依赖和各种环境下的语法报错
+  # 放弃数组，直接使用字符串循环，完美兼容各类精简环境
+  for mirror in "https://ghproxy.net/" "https://gh-proxy.com/" "https://mirror.ghproxy.com/"; do
     local time_str
     time_str=$(curl -o /dev/null -s -w "%{time_total}" --connect-timeout 2 "${mirror}" || echo "999")
-    
-    # 取小数点前的整数
+
+    # 截取小数点前的整数
     local time_int="${time_str%%.*}"
-    # 如果为空或不是纯数字，兜底设为 999
-    if [[ ! "$time_int" =~ ^[0-9]+$ ]]; then
-      time_int=999
-    fi
-    
+
+    # 纯数字校验，使用最兼容的 case 写法替代正则表达式
+    case "$time_int" in
+        ''|*[!0-9]*) time_int=999 ;;
+    esac
+
     if [ "$time_int" -lt "$min_time" ]; then
       min_time=$time_int
       BEST_MIRROR=$mirror
     fi
   done
 
-  # 如果最优镜像响应时间小于 5 秒，则使用它
   if [ -n "$BEST_MIRROR" ] && [ "$min_time" -lt 5 ]; then
     echo "Selected mirror: ${BEST_MIRROR}"
   else
@@ -85,7 +75,6 @@ select_best_mirror() {
   fi
 }
 
-# Get download URL from latest release
 get_download_url() {
   local asset_name="${BINARY_NAME}-${OS}-${ARCH}"
   if [ "$OS" = "windows" ]; then
@@ -95,7 +84,7 @@ get_download_url() {
   echo "Fetching latest release info..."
   local release_url="https://api.github.com/repos/${REPO}/releases/latest"
   local release_json
-  
+
   if [ -n "$BEST_MIRROR" ]; then
     release_json=$(curl -fsSL --connect-timeout 5 "${BEST_MIRROR}${release_url}" 2>/dev/null || curl -fsSL "${release_url}")
   else
@@ -106,5 +95,47 @@ get_download_url() {
     echo "Failed to fetch release info"; exit 1
   fi
 
-  DOWNLOAD_URL=$(echo "$release_json" | grep -o "\"browser_download_url\": *\"[^\"]*${asset_name}\"" | head -1 | cut -d'"' -f4)
-  if [ -z "$DOWNLOAD_URL" ];
+  DOWNLOAD_URL=$(echo "$release_json" | grep -o '"browser_download_url": *"[^"]*'${asset_name}'"' | head -1 | cut -d'"' -f4)
+  if [ -z "$DOWNLOAD_URL" ]; then
+    echo "Asset ${asset_name} not found."
+    echo "Visit https://github.com/${REPO}/releases/latest to download manually."
+    exit 1
+  fi
+
+  if [ -n "$BEST_MIRROR" ]; then
+    DOWNLOAD_URL="${BEST_MIRROR}${DOWNLOAD_URL}"
+  fi
+
+  VERSION=$(echo "$release_json" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+  echo "Latest version: ${VERSION}"
+}
+
+download_binary() {
+  local output="${INSTALL_DIR}/${BINARY_NAME}"
+  if [ "$OS" = "windows" ]; then
+    output="${output}.exe"
+  fi
+
+  echo "Downloading from: ${DOWNLOAD_URL}"
+  curl -fsSL -o "$output" "$DOWNLOAD_URL" || {
+    echo "Download failed"; exit 1
+  }
+  chmod +x "$output"
+  echo "Saved to: ${output}"
+  BINARY_PATH="$output"
+}
+
+run_binary() {
+  echo ""
+  echo "========================================"
+  echo "Master: ${MASTER}"
+  echo "========================================"
+  echo ""
+  exec "$BINARY_PATH" -master "$MASTER" -token "$TOKEN"
+}
+
+detect_platform
+select_best_mirror
+get_download_url
+download_binary
+run_binary
