@@ -49,7 +49,7 @@ select_best_mirror() {
   local min_time=999
 
   # 放弃数组，直接使用字符串循环，完美兼容各类精简环境
-  for mirror in "https://ghproxy.net/" "https://gh-proxy.com/" "https://mirror.ghproxy.com/"; do
+  for mirror in "https://gh-proxy.com/" "https://mirror.ghproxy.com/"; do
     local time_str
     time_str=$(curl -o /dev/null -s -w "%{time_total}" --connect-timeout 2 "${mirror}" || echo "999")
 
