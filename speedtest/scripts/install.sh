@@ -45,27 +45,27 @@ detect_platform() {
 select_best_mirror() {
   echo "Checking network connectivity to find the best mirror..."
 
-  BEST_MIRROR="https://gcode.hostcentral.cc/"
+  BEST_MIRROR=""
   local min_time=999
 
-  # # 放弃数组，直接使用字符串循环，完美兼容各类精简环境
-  # for mirror in "https://gh-proxy.com/" "https://mirror.ghproxy.com/"; do
-  #   local time_str
-  #   time_str=$(curl -o /dev/null -s -w "%{time_total}" --connect-timeout 2 "${mirror}" || echo "999")
+  # 放弃数组，直接使用字符串循环，完美兼容各类精简环境
+  for mirror in "https://gh-proxy.com/" "https://gcode.hostcentral.cc/"; do
+    local time_str
+    time_str=$(curl -o /dev/null -s -w "%{time_total}" --connect-timeout 2 "${mirror}" || echo "999")
 
-  #   # 截取小数点前的整数
-  #   local time_int="${time_str%%.*}"
+    # 截取小数点前的整数
+    local time_int="${time_str%%.*}"
 
-  #   # 纯数字校验，使用最兼容的 case 写法替代正则表达式
-  #   case "$time_int" in
-  #       ''|*[!0-9]*) time_int=999 ;;
-  #   esac
+    # 纯数字校验，使用最兼容的 case 写法替代正则表达式
+    case "$time_int" in
+        ''|*[!0-9]*) time_int=999 ;;
+    esac
 
-  #   if [ "$time_int" -lt "$min_time" ]; then
-  #     min_time=$time_int
-  #     BEST_MIRROR=$mirror
-  #   fi
-  # done
+    if [ "$time_int" -lt "$min_time" ]; then
+      min_time=$time_int
+      BEST_MIRROR=$mirror
+    fi
+  done
 
   if [ -n "$BEST_MIRROR" ] && [ "$min_time" -lt 5 ]; then
     echo "Selected mirror: ${BEST_MIRROR}"
